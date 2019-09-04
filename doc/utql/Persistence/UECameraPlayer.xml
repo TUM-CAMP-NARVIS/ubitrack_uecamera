@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<UTQLPatternTemplates xmlns='http://ar.in.tum.de/ubitrack/utql'
+                      xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+                      xmlns:xi='http://www.w3.org/2001/XInclude'
+                      xmlns:h="http://www.w3.org/1999/xhtml"
+                      xsi:schemaLocation='http://ar.in.tum.de/ubitrack/utql ../../schema/utql_templates.xsd'>
+    
+    <Pattern name="PosePlayer" displayName="Player (Pose)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays pose data that has been recorded with PoseRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Pose" source="A" destination="B">
+                <Attribute name="type" value="6D" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where pose data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPose"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+	<Pattern name="PosePlayerWithSignal" displayName="Player with signal(Pose)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays pose data that has been recorded with PoseRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+			<Node name="Event" displayName="Event"/>
+            <Node name="EventSpace" displayName="Event Space"/>
+            <Edge name="Output" displayName="Played Pose" source="A" destination="B">
+                <Attribute name="type" value="6D" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where pose data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+			
+			
+			<Edge name="OutputFinished" displayName="Finished signal" source="Event" destination="EventSpace">
+				<Attribute name="type" value="Button" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+			</Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPose"/>
+        </DataflowConfiguration>
+    </Pattern>
+    
+    <Pattern name="PositionPlayerWithSignal" displayName="Player with signal(3D Position)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 3D position data that has been recorded with PositionRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+			<Node name="Event" displayName="Event"/>
+            <Node name="EventSpace" displayName="Event Space"/>
+            <Edge name="Output" displayName="Played Position" source="A" destination="B">
+                <Attribute name="type" value="3DPosition" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 3d position data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>			
+			<Edge name="OutputFinished" displayName="Finished signal" source="Event" destination="EventSpace">
+				<Attribute name="type" value="Button" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+			</Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPosition"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+	<Pattern name="PositionPlayer" displayName="Player (3D Position)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 3D position data that has been recorded with PositionRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Position" source="A" destination="B">
+                <Attribute name="type" value="3DPosition" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 3d position data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+			
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPosition"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+	
+
+    <Pattern name="Position2DPlayer" displayName="Player (2D Position)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 2D position data that has been recorded with PositionRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Position" source="A" destination="B">
+                <Attribute name="type" value="2DPosition" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                 <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 2d position data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPosition2"/>
+        </DataflowConfiguration>
+    </Pattern>
+
+    <Pattern name="RotationPlayer" displayName="Player (3D Rotation)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays rotation data that has been recorded with RotationRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Rotation" source="A" destination="B">
+                <Attribute name="type" value="3DRotation" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where rotation data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerRotation"/>
+        </DataflowConfiguration>
+    </Pattern>
+    
+    <Pattern name="PositionList3DPlayer" displayName="Player (3D Position List)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 3D position list data that has been recorded with PositionList3DRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played 3DPositionList" source="A" destination="B">
+                <Attribute name="type" value="3DPositionList" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 3d position data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPositionList"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+    <Pattern name="PositionList2DPlayer" displayName="Player (2D Position List)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 2D position list data that has been recorded with PositionList2DRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played 2DPositionList" source="A" destination="B">
+                <Attribute name="type" value="2DPositionList" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 2d position list data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPositionList2"/>
+        </DataflowConfiguration>
+    </Pattern>
+    
+    
+
+    <Pattern name="RotationVelocityPlayer" displayName="Player (Rotation Velocity)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays RotationVelocity measurements that has been recorded with the recorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played RotationVelocity" source="A" destination="B">
+                <Attribute name="type" value="RotationVelocity" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where rotation velocity data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerRotationVelocity"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+    <Pattern name="ErrorPosePlayer" displayName="Player (ErrorPose)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays error pose data that has been recorded with ErrorPoseRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Pose" source="A" destination="B">
+                <Attribute name="type" value="6DError" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where error pose data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerErrorPose"/>
+        </DataflowConfiguration>
+    </Pattern>
+
+    <Pattern name="PoseListPlayer" displayName="Player (PoseList)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays pose list data that has been recorded with PoseListRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Pose" source="A" destination="B">
+                <Attribute name="type" value="PoseList" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where pose list data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPoseList"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+    <Pattern name="ErrorPositionPlayer" displayName="Player (ErrorPosition)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays 3d position error data that has been recorded with PoseListRecorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Pose" source="A" destination="B">
+                <Attribute name="type" value="3DPositionError" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where 3d position error data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerPoseList"/>
+        </DataflowConfiguration>
+    </Pattern>
+	
+	<Pattern name="Matrix3x3Player" displayName="Player (Matrix3x3)">
+        <Description>
+            <p xmlns="http://www.w3.org/1999/xhtml">Plays matrix data that has been recorded with Matrix3x3Recorder before</p>
+        </Description>
+        <Output>
+            <Node name="A" displayName="A"/>
+            <Node name="B" displayName="B"/>
+            <Edge name="Output" displayName="Played Matrix3x3" source="A" destination="B">
+                <Attribute name="type" value="3x3Matrix" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
+				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
+                    <Description>
+                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where matrix data will be read from</p>
+                    </Description>
+                </Attribute>
+            </Edge>
+        </Output>
+        <DataflowConfiguration>
+            <UbitrackLib class="PlayerMatrix3x3"/>
+        </DataflowConfiguration>
+    </Pattern>
+    
+    <!-- Attribute declarations -->
+    
+    <GlobalNodeAttributeDeclarations>
+        <xi:include href="../../GlobalAttrSpec.xml" xpointer="element(/1/1/1)"/>
+    </GlobalNodeAttributeDeclarations>
+    
+    <GlobalEdgeAttributeDeclarations>
+        <xi:include href="../../GlobalAttrSpec.xml" xpointer="element(/1/2/1)"/>
+        <xi:include href="../../GlobalAttrSpec.xml" xpointer="element(/1/2/2)"/>
+        <xi:include href="../../GlobalAttrSpec.xml" xpointer="element(/1/2/3)"/>
+    </GlobalEdgeAttributeDeclarations>
+    
+    <GlobalDataflowAttributeDeclarations>
+        <xi:include href="../../GlobalAttrSpec.xml" xpointer="element(/1/3/1)"/>
+    </GlobalDataflowAttributeDeclarations>
+ 
+    
+</UTQLPatternTemplates>

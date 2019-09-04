@@ -1,4 +1,4 @@
-project(ubitrack_component_core)
+project(ubitrack_uecamera)
 
 cmake_minimum_required(VERSION 3.4.0)
 

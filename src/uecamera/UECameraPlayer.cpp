@@ -52,6 +52,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/serialization/string.hpp>
+#include <boost/shared_ptr.hpp>
 
 #include <utVision/Image.h>
 #include <opencv/highgui.h>
@@ -73,7 +74,7 @@ class UECameraPlayerComponentKey
 public:
 	/** extract the "file" parameter of the edge config. */
 	UECameraPlayerComponentKey( boost::shared_ptr< Graph::UTQLSubgraph > pConfig )
-		: Dataflow::EdgeAttributeKey< std::string >( pConfig, "Output", "file" )
+		: Dataflow::EdgeAttributeKey< std::string >( pConfig, "OutputColor", "file" )
 	{}
 };
 
@@ -191,16 +192,16 @@ public:
 		, m_outPortColor( "OutputColor", *this )
 		, m_outPortDepth( "OutputDepth", *this )
 		, m_outPortPose( "OutputPose", *this )
-		, m_outPortIntrinsics( "OutputPose", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModel, this, _1) )
+		, m_outPortIntrinsics( "OutputIntrinsics", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModel, this, _1) )
 	{
 		LOG4CPP_INFO( logger, "Created UECameraPlayerComponentImage using file \"" << key.get() << "\"." );
 
 		// read configuration
-		pConfig->getEdge( "Output" )->getAttributeData( "offset", m_offset );
-		pConfig->getEdge( "Output" )->getAttributeData( "speedup", m_speedup );
+		pConfig->getEdge( "OutputColor" )->getAttributeData( "offset", m_offset );
+		pConfig->getEdge( "OutputColor" )->getAttributeData( "speedup", m_speedup );
 
 		// get the file which describes the timestamps and filenames
-		pConfig->getEdge( "Output" )->getAttributeData( "file", m_tsFile );
+		pConfig->getEdge( "OutputColor" )->getAttributeData( "file", m_tsFile );
 		
 		// start loading images in a thread
 		if ( !m_pLoadThread )
@@ -212,127 +213,32 @@ public:
 	
 	void loadImages()
 	{
-		boost::filesystem::path tsFile( m_tsFile );
-		if( !boost::filesystem::exists( tsFile ) )
-			UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
+		//boost::filesystem::path tsFile( m_tsFile );
+		//if( !boost::filesystem::exists( tsFile ) )
+		//	UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
 			
 
-		// read file with timestamps and filenames
-		std::ifstream ifs( m_tsFile.c_str() );
-		if( !ifs.is_open ( ) )
-			UBITRACK_THROW( "Could not open file \"" + m_tsFile  + "\". This file should contain the timestamps and filenames of the images." );
-
-		LOG4CPP_INFO( logger, "Starting to load images defined in file \"" << m_tsFile << "\"." );
-
-		while( ifs.good() ) // && this->isRunning() ) <- "isRunning" does not work here, but not really necessary
-		{
-			// read contents line by line
-			// read the image file and add the image and the timestamp to an event queue
-			std::string temp;
-			getline( ifs, temp );
-			
-			LOG4CPP_TRACE( logger, "Loading image file for log line " <<  temp );
-
-			// parsing line with stringstreams
-			// we have the fileformat "1272966027407 CameraRaw01249.jpg"
-			std::stringstream ss ( std::stringstream::in | std::stringstream::out );
-			ss << temp; // parse the line
-			
-			// declare and initialize the variable for the timestamp 
-			Measurement::Timestamp timeStamp = 0;
-			ss >> timeStamp;
-			
-			// declare and initialize the variable for the name of the image 
-			std::string fileName;
-			ss >> fileName;
-			
-			if ( fileName.empty() )
-				continue;
-
-		  // mh: "front()" is c++11 standard
-		  // if ( fileName.front() == '"' ) {
-
-			if ( *(fileName.begin()) == '"' )
-			{
-				fileName.erase( 0, 1 ); // erase the first character
-				fileName.erase( fileName.size() - 1 ); // erase the last character
-			}
-  		  
-		 	// check for length of timestamp to decide if timestamp is ms or ns
-			// (we just need ms here, no need to be more accurate)
-			//if( timeStamp > 1e13 )
-			//	timeStamp = static_cast< Measurement::Timestamp >( timeStamp * 1e-06 );
-			
-			boost::filesystem::path file( fileName );
-			boost::filesystem::file_status fstatus( boost::filesystem::status( file ) );
-			
-			//check if path to file is given absolute
-			if( !boost::filesystem::exists( fstatus ) )
-			{
-				//no absolute path, check relative path to timestampfile:
-				file = boost::filesystem::path( tsFile.parent_path().string() + "/" + fileName );
-				if( !boost::filesystem::exists( file ) )
-					continue;
-			}
-			
-			//logging
-			LOG4CPP_TRACE( logger, "loading image file " <<  file.string() << " for frame " <<  timeStamp );
-
-			// Load the image
-			// assigning the NULL avoids memory leaks
-			cv::Mat img;
-
-			
-			try
-			{
-				if (file.extension() == ".BoostBinary") {
-					Vision::Image tmp;
-					Util::readBinaryCalibFile(file.string(), tmp);
-					img = tmp.Mat();
-				}
-				else {
-					img = cv::imread(file.string(), CV_LOAD_IMAGE_UNCHANGED);
-				}
-				
-			}
-			catch( std::exception& e )
-			{
-				LOG4CPP_ERROR( logger, "loading image file \"" << file.string() << "\" failed: " << e.what() );
-				continue;
-			}
-			catch ( ... )
-			{
-				LOG4CPP_ERROR(logger, "loading image file \"" << file.string() << "\" failed: other reason");
-				continue;
-			}
-			
-			if( img.total() == 0 )
-			{
-				LOG4CPP_ERROR( logger, "loading image file \"" <<  file.string() << "\" failed." );
-				continue;
-			}
-
-			// @todo: define ImageFormatProperties here to match the decoded images.
-
-			// convert loaded image into the required pImage class
-			boost::shared_ptr< Vision::Image > pImage( new Vision::Image( img ) );
-
-			// @todo make imgformat configurable on image UECameraPlayer ??
-			
-			// Building the event and packing timestamp and image into it
-			Measurement::ImageMeasurement e( static_cast< Measurement::Timestamp>(  timeStamp), pImage );
-
+		// read file with timestamps and other data
+		
+		// genereated for this example
+		for (int i = 0; i < 100; i++) {
 			// Store it
-			m_events.push_back( e );
+			m_events.push_back(Measurement::Timestamp(i*1000000000LL));
 		}
+			
+		
 		LOG4CPP_INFO( logger, "Done loading " << m_events.size() << " images defined in file \"" << m_tsFile << "\"." );
 		
 	}
 
 	Measurement::Timestamp getFirstTime() const
 	{
-		if ( !m_events.empty() )
-			return m_events.begin()->time() + 1000000LL * m_offset;
+		if (!m_events.empty()) {
+			// TODO: provide the first/earliest timestamp 
+			Measurement::Timestamp ts = *m_events.begin();
+			return ts + 1000000LL * m_offset;
+		}
+			
 		else
 			return 0;
 	}
@@ -340,8 +246,12 @@ public:
 	/** return time of the next measurement to be played or 0 if no events */
 	Measurement::Timestamp getNextTime( Measurement::Timestamp recordStart, Measurement::Timestamp playbackStart )
 	{
-		if( !m_events.empty() )
-			return recordTimeToReal( m_events.begin()->time(), recordStart, playbackStart );
+		if (!m_events.empty()) {
+			// TODO: provide the next timestamp 
+			Measurement::Timestamp ts = *m_events.begin();
+			return recordTimeToReal(ts, recordStart, playbackStart);
+		}
+			
 		else
 			return 0;
 	}
@@ -351,15 +261,55 @@ public:
 	{
 		if( !m_events.empty() )
 		{
-			m_outPort.send( Measurement::ImageMeasurement( recordTimeToReal( m_events.begin()->time(), recordStart, playbackStart ), m_events.front() ) );
+			Measurement::Timestamp ts = recordTimeToReal(*m_events.begin(), recordStart, playbackStart);
+
+			// TODO send all data with the same timestamp
+
+			boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 3, CV_8U, 0));
+			m_outPortColor.send( Measurement::ImageMeasurement( ts, colorImage ) );
+
+
+			boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 1, CV_16U, 0));
+			m_outPortColor.send(Measurement::ImageMeasurement(ts, depthImage));
+
+			Math::Quaternion rotation(0, 0, 0, 1);
+			Math::Vector3d position(1, 2, 3);
+			Math::Pose pose(rotation, position);
+			m_outPortPose.send(Measurement::Pose(ts, pose));
+
+
+
 			m_events.pop_front();
 		}
 	}
 
 	Measurement::CameraIntrinsics getCameraModel(Measurement::Timestamp t)
     {
-		
-        return Measurement::CameraIntrinsics(t, );
+
+		// TODO: provide intrinsic properties
+		Math::Matrix< double, 3, 3 > intrinsicMatrix;
+		// row , col
+		intrinsicMatrix(0, 0) = 400; //fx
+		intrinsicMatrix(0, 1) = 0;
+		intrinsicMatrix(0, 2) = -320; //cx
+		intrinsicMatrix(1, 0) = 0;
+		intrinsicMatrix(1, 1) = 400; //fy
+		intrinsicMatrix(1, 2) = -240; //cy
+		intrinsicMatrix(2, 0) = 0;
+		intrinsicMatrix(2, 1) = 0;
+		intrinsicMatrix(2, 2) = -1;
+
+		Math::Vector< double, 2 > radial;
+		radial(0) = 0;
+		radial(1) = 0;
+		Math::Vector< double, 2 > tangential;
+		tangential(0) = 0;
+		tangential(1) = 0;
+
+		std::size_t width = 640;
+		std::size_t height = 480;
+		Math::CameraIntrinsics<double> intrinsics(intrinsicMatrix, radial, tangential, width, height);
+        return Measurement::CameraIntrinsics(t, intrinsics);
     }
 protected:
 
@@ -391,7 +341,8 @@ protected:
 	Dataflow::PullSupplier< Measurement::CameraIntrinsics > m_outPortIntrinsics;
 
 	/** queue for the images being loaded, @todo add mutex for accessing m_events */
-	std::deque< Measurement::ImageMeasurement > m_events;
+	// TODO: store all data
+	std::deque< Measurement::Timestamp > m_events;
 };
 
 

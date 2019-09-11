@@ -465,7 +465,7 @@ protected:
 		return buffer;
 	}
 
-	Math::Quaternion getQuaternionFromYPR(float yaw, float pitch, float roll)
+	Math::Quaternion getQuaternionFromYPR(double yaw, double pitch, double roll)
 	{
 		const double PI = 3.14159265359;
 

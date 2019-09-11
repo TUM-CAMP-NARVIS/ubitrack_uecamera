@@ -243,24 +243,25 @@ public:
 		Util::sleep( 300 );
 	}
 	
-	void loadImages()
-	{
-		//boost::filesystem::path tsFile( m_tsFile );
-		//if( !boost::filesystem::exists( tsFile ) )
-		//	UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
-		std::string sWidth = metadata["width"];
-		std::string sHeight = metadata["height"];
+    void loadImages()
+    {
+        //boost::filesystem::path tsFile( m_tsFile );
+        //if( !boost::filesystem::exists( tsFile ) )
+        //	UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
+        std::string sWidth = metadata["width"];
+        std::string sHeight = metadata["height"];
+        std::string sFPS = metadata["fps"];
 		int32_t width = std::stoi(sWidth);
 		int32_t height = std::stoi(sHeight);
-		float fps = std::stod(std::string(metadata["fps"]));
+		float fps = std::stof(sFPS);
 		int64_t nanoseconds = 1000LL * 1000LL * 1000LL;
 
 		LOG4CPP_INFO( logger, "Total images " << allImagesBasenames.size() );
 
 		for (auto entry = allImagesBasenames.begin(); entry != allImagesBasenames.end(); ++entry)
 		{
-			std::string nameColor = entry->second + ".raw8";
-			std::string nameDepth = entry->second + ".raw32f";
+			std::string nameColor = entry->second + ".bgr8";
+			std::string nameDepth = entry->second + ".depth16";
 
 			cv::Mat imgColor(height, width, CV_8UC4);
 			cv::Mat imgDepth(height, width, CV_16UC1);
@@ -268,8 +269,7 @@ public:
 			int32_t fileSizeColor, fileSizeDepth;
 			std::unique_ptr<char[]> bufferColor = readFile(nameColor, fileSizeColor);
 			std::unique_ptr<char[]> bufferDepth = readFile(nameDepth, fileSizeDepth);
-			std::unique_ptr<uint16_t[]> bufferUINT16(new uint16_t[fileSizeDepth / sizeof(float)]);
-
+			
 			if (fileSizeColor != fileSizeDepth && fileSizeColor != width * height * 4)
 			{
 				// Skip this image, something is wrong
@@ -280,14 +280,8 @@ public:
 			m_events.push_back(Measurement::Timestamp(m_initialTS + entry->first * nanoseconds / fps));
 			LOG4CPP_INFO( logger, "Loaded image " << entry->second );
 
-			float* tempPtr = reinterpret_cast<float*>(bufferDepth.get());
-			for (int index = 0; index < fileSizeDepth / sizeof(float); ++index)
-			{
-				bufferUINT16[index] = static_cast<uint16_t>(tempPtr[index] * 100.0 + 0.5);
-			}
-
 			std::memcpy(imgColor.data, bufferColor.get(), fileSizeColor);
-			std::memcpy(imgDepth.data, bufferUINT16.get(), fileSizeDepth * sizeof(uint16_t) / sizeof(float));
+			std::memcpy(imgDepth.data, bufferDepth.get(), fileSizeDepth);
 
 			imagesColor.push_back(imgColor);
 			imagesDepth.push_back(imgDepth);
@@ -362,15 +356,23 @@ public:
 		}
 	}
 
-	Measurement::Pose getCameraPoseColor(Measurement::Timestamp t)
-	{
-		double pitch = std::stod(std::string(metadata["color_image"]["rot_pitch"]));
-		double yaw   = std::stod(std::string(metadata["color_image"]["rot_yaw"]));
-		double roll  = std::stod(std::string(metadata["color_image"]["rot_roll"]));
+    Measurement::Pose getCameraPoseColor(Measurement::Timestamp t)
+    {
+        std::string sPitch = metadata["color_image"]["rot_pitch"];
+        std::string sRoll = metadata["color_image"]["rot_roll"];
+        std::string sYaw = metadata["color_image"]["rot_yaw"];
 
-		double xPos  = std::stod(std::string(metadata["color_image"]["pos_x"]));
-		double yPos  = std::stod(std::string(metadata["color_image"]["pos_y"]));
-		double zPos  = std::stod(std::string(metadata["color_image"]["pos_z"]));
+        double pitch = std::stod(sPitch);
+        double yaw = std::stod(sYaw);
+        double roll = std::stod(sRoll);
+
+        std::string sXpos = metadata["color_image"]["pos_x"];
+        std::string sYpos = metadata["color_image"]["pos_y"];
+        std::string sZpos = metadata["color_image"]["pos_z"];
+
+		double xPos  = std::stod(sXpos);
+		double yPos  = std::stod(sYpos);
+		double zPos  = std::stod(sZpos);
 		
 		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
 
@@ -381,14 +383,22 @@ public:
 
 	Measurement::Pose getCameraPoseDepth(Measurement::Timestamp t)
 	{
-		double pitch = std::stod(std::string(metadata["depth_image"]["rot_pitch"]));
-		double yaw   = std::stod(std::string(metadata["depth_image"]["rot_yaw"]));
-		double roll  = std::stod(std::string(metadata["depth_image"]["rot_roll"]));
+        std::string sPitch = metadata["depth_image"]["rot_pitch"];
+        std::string sRoll = metadata["depth_image"]["rot_roll"];
+        std::string sYaw = metadata["depth_image"]["rot_yaw"];
 
-		double xPos  = std::stod(std::string(metadata["depth_image"]["pos_x"]));
-		double yPos  = std::stod(std::string(metadata["depth_image"]["pos_y"]));
-		double zPos  = std::stod(std::string(metadata["depth_image"]["pos_z"]));
-		
+        double pitch = std::stod(sPitch);
+        double yaw = std::stod(sYaw);
+        double roll = std::stod(sRoll);
+
+        std::string sXpos = metadata["depth_image"]["pos_x"];
+        std::string sYpos = metadata["depth_image"]["pos_y"];
+        std::string sZpos = metadata["depth_image"]["pos_z"];
+
+        double xPos = std::stod(sXpos);
+        double yPos = std::stod(sYpos);
+        double zPos = std::stod(sZpos);
+
 		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
 
         Math::Vector3d position(xPos, yPos, zPos);                                                                 
@@ -397,12 +407,16 @@ public:
 	}
 	Measurement::CameraIntrinsics getCameraModelColor(Measurement::Timestamp t)
     {
-		std::size_t width = std::stoi(std::string(metadata["width"]));
-		std::size_t height = std::stoi(std::string(metadata["height"]));
+        std::string sWidth = metadata["width"];
+        std::string sHeight = metadata["height"];
+		std::size_t width = std::stoi(sWidth);
+		std::size_t height = std::stoi(sHeight);
 		int32_t iWidth = static_cast<int32_t>(width);
 		int32_t iHeight = static_cast<int32_t>(height);
 		const double PI = 3.1415926;
-		double field_of_view = std::stod(std::string(metadata["fov"]));
+        std::string sFOV = metadata["fov"];
+		
+        double field_of_view = std::stod(sFOV);
 
 		// TODO: provide intrinsic properties
 		// done

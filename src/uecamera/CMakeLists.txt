@@ -17,9 +17,11 @@ target_link_libraries(${UBITRACK_LIBRARY_NAME}
     CONAN_PKG::ubitrack_core
     CONAN_PKG::ubitrack_vision
     CONAN_PKG::ubitrack_dataflow
+    "stdc++fs"
     )
 
 target_include_directories(${UBITRACK_LIBRARY_NAME} PUBLIC
+		../../include
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CONAN_INCLUDE_DIRS_LIBREALSENSE}>
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

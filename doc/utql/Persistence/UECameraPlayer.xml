@@ -12,38 +12,50 @@
         </Description>
         <Output>
 			<Node name="World" displayName="World"/>
-            <Node name="A" displayName="Camera"/>
-            <Node name="B" displayName="ImagePlane"/>
+            <Node name="ColorCamera" displayName="ColorCamera"/>
+            <Node name="DepthCamera" displayName="DepthCamera"/>
+            <Node name="ImagePlaneColorCamera" displayName="ImagePlaneColorCamera"/>
+            <Node name="ImagePlaneDepthCamera" displayName="ImagePlaneDepthCamera"/>
 
-            <Edge name="OutputColor" displayName="Color Image" source="A" destination="B">
+            <Edge name="OutputColor" displayName="Color Image" source="ColorCamera" destination="ImagePlaneColorCamera">
                 <Attribute name="type" value="Image" xsi:type="EnumAttributeReferenceType"/>
                 <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>
-				<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
-                <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
-                <Attribute name="file" displayName="Logfile" xsi:type="PathAttributeDeclarationType">
-                    <Description>
-                        <p xmlns="http://www.w3.org/1999/xhtml">Logfile where matrix data will be read from</p>
-                    </Description>
-                </Attribute>
             </Edge>
 
-			<Edge name="OutputDepth" displayName="Depth Image" source="A" destination="B">
+			<Edge name="OutputDepth" displayName="Depth Image" source="DepthCamera" destination="ImagePlaneDepthCamera">
                 <Attribute name="type" value="Image" xsi:type="EnumAttributeReferenceType"/>
                 <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>          
             </Edge>
 
-			<Edge name="OutputPose" displayName="Camera Pose" source="World" destination="A">
+			<Edge name="OutputPoseColor" displayName="Color Camera Pose" source="World" destination="ColorCamera">
                 <Attribute name="type" value="6D" xsi:type="EnumAttributeReferenceType"/>
-                <Attribute name="mode" value="push" xsi:type="EnumAttributeReferenceType"/>          
+                <Attribute name="mode" value="pull" xsi:type="EnumAttributeReferenceType"/>          
             </Edge>
 
-			<Edge name="OutputIntrinsics" displayName="Intrinsics" source="A" destination="B">
+			<Edge name="OutputPoseDepth" displayName="Depth Camera Pose" source="World" destination="DepthCamera">
+                <Attribute name="type" value="6D" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="pull" xsi:type="EnumAttributeReferenceType"/>          
+            </Edge>
+
+			<Edge name="OutputIntrinsicsColor" displayName="Color Camera Intrinsics" source="ColorCamera" destination="ImagePlaneColorCamera">
+                <Attribute name="type" value="Intrinsics" xsi:type="EnumAttributeReferenceType"/>
+                <Attribute name="mode" value="pull" xsi:type="EnumAttributeReferenceType"/>          
+            </Edge>
+			
+			<Edge name="OutputIntrinsicsDepth" displayName="Depth Camera Intrinsics" source="DepthCamera" destination="ImagePlaneDepthCamera">
                 <Attribute name="type" value="Intrinsics" xsi:type="EnumAttributeReferenceType"/>
                 <Attribute name="mode" value="pull" xsi:type="EnumAttributeReferenceType"/>          
             </Edge>
         </Output>
         <DataflowConfiguration>
             <UbitrackLib class="UECameraPlayerImage"/>
+			<Attribute name="offset" min="0" default="0" xsi:type="IntAttributeDeclarationType" displayName="TimeOffset"/>
+            <Attribute name="speedup" min="0.01" default="1" xsi:type="DoubleAttributeDeclarationType" displayName="Speed up factor"/>
+            <Attribute name="file" displayName="JSON Metadata" xsi:type="PathAttributeDeclarationType">
+                <Description>
+                    <p xmlns="http://www.w3.org/1999/xhtml">JSON File containing metadata describing the corresponding simulation data</p>
+                </Description>
+            </Attribute>
         </DataflowConfiguration>
     </Pattern>
     

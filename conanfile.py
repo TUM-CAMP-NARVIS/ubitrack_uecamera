@@ -27,6 +27,10 @@ class UbitrackCoreConan(ConanFile):
     # all sources are deployed with the package
     exports_sources = "doc/*", "src/*", "CMakeLists.txt"
 
+    def configure(self):
+        if self.settings.os == "Linux":
+            self.options["opencv"].with_gtk = True
+
     def requirements(self):
         userChannel = "ubitrack/stable"
         if self.options.workspaceBuild:

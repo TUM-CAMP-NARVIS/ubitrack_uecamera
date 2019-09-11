@@ -46,6 +46,21 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <regex>
+#include <stdint.h>
+
+#ifdef _WIN32
+#include <filesystem>
+#else
+#include <experimental/filesystem>
+#endif
+
+#if __cplusplus < 201703L // with C++ version less than 17, filesystem was in experimental
+namespace fs = std::experimental::filesystem;
+#else
+namespace fs = std::filesystem;
+#endif
 
 // Boost
 #include <boost/thread.hpp>
@@ -56,6 +71,9 @@
 
 #include <utVision/Image.h>
 #include <opencv/highgui.h>
+#include "nlohmann/json.hpp"
+
+using json = nlohmann::json;
 
 static log4cpp::Category& logger( log4cpp::Category::getInstance( "Drivers.UEPlayer" ) );
 
@@ -68,16 +86,8 @@ class UECameraPlayerComponentBase;
 /**
  * Component key for UECameraPlayerProducer/Consumer components.
  */
-class UECameraPlayerComponentKey
-	: public Dataflow::EdgeAttributeKey< std::string >
-{
-public:
-	/** extract the "file" parameter of the edge config. */
-	UECameraPlayerComponentKey( boost::shared_ptr< Graph::UTQLSubgraph > pConfig )
-		: Dataflow::EdgeAttributeKey< std::string >( pConfig, "OutputColor", "file" )
-	{}
-};
 
+MAKE_DATAFLOWCONFIGURATIONATTRIBUTEKEY( UECameraPlayerComponentKey, std::string, "file")
 
 /**
  * Module used by UECameraPlayer components, maintains a single main loop for all UECameraPlayer components
@@ -191,17 +201,39 @@ public:
 		, m_speedup( 1.0 )
 		, m_outPortColor( "OutputColor", *this )
 		, m_outPortDepth( "OutputDepth", *this )
-		, m_outPortPose( "OutputPose", *this )
-		, m_outPortIntrinsics( "OutputIntrinsics", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModel, this, _1) )
+		, m_outPortPoseColor( "OutputPoseColor", *this, boost::bind(&UECameraPlayerComponentImage::getCameraPoseColor, this, _1) )
+		, m_outPortPoseDepth( "OutputPoseDepth", *this, boost::bind(&UECameraPlayerComponentImage::getCameraPoseDepth, this, _1) )
+		, m_initialTS( 1000LL )
+		, m_currentIndex( 0 )
+		, m_outPortIntrinsicsColor( "OutputIntrinsicsColor", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModelColor, this, _1) )
+		, m_outPortIntrinsicsDepth( "OutputIntrinsicsDepth", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModelDepth, this, _1) )
 	{
 		LOG4CPP_INFO( logger, "Created UECameraPlayerComponentImage using file \"" << key.get() << "\"." );
 
-		// read configuration
-		pConfig->getEdge( "OutputColor" )->getAttributeData( "offset", m_offset );
-		pConfig->getEdge( "OutputColor" )->getAttributeData( "speedup", m_speedup );
+		pConfig->m_DataflowAttributes.getAttributeData("offset", m_offset);
+		pConfig->m_DataflowAttributes.getAttributeData("speedup", m_speedup);
+		std::string metadataFile = pConfig->m_DataflowAttributes.getAttributeString("file");
 
-		// get the file which describes the timestamps and filenames
-		pConfig->getEdge( "OutputColor" )->getAttributeData( "file", m_tsFile );
+	    std::ifstream infile(metadataFile);
+		metadata = json::parse(infile);
+
+		std::string basePath = metadataFile.substr(0, metadataFile.length() - std::string("Metadata.json").length());
+		// load all image paths
+		std::regex rex{R"###(image_number_([0-9]*)\.raw32f)###"};
+		std::smatch matches;
+
+		std::vector<std::string> allFiles;
+		for (const auto & entry : fs::directory_iterator(basePath))
+		{
+			LOG4CPP_INFO( logger, "Found image " << entry.path().u8string() );
+			
+			std::string fileName = entry.path().u8string();
+			if (std::regex_search(fileName, matches, rex))
+			{
+				std::string numbers = matches[1];
+				allImagesBasenames[std::stoi(numbers)] = basePath + "image_number_" + numbers;
+			}
+		}		
 		
 		// start loading images in a thread
 		if ( !m_pLoadThread )
@@ -216,16 +248,54 @@ public:
 		//boost::filesystem::path tsFile( m_tsFile );
 		//if( !boost::filesystem::exists( tsFile ) )
 		//	UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
+		std::string sWidth = metadata["width"];
+		std::string sHeight = metadata["height"];
+		int32_t width = std::stoi(sWidth);
+		int32_t height = std::stoi(sHeight);
+		float fps = std::stod(std::string(metadata["fps"]));
+		int64_t nanoseconds = 1000LL * 1000LL * 1000LL;
+
+		LOG4CPP_INFO( logger, "Total images " << allImagesBasenames.size() );
+
+		for (auto entry = allImagesBasenames.begin(); entry != allImagesBasenames.end(); ++entry)
+		{
+			std::string nameColor = entry->second + ".raw8";
+			std::string nameDepth = entry->second + ".raw32f";
+
+			cv::Mat imgColor(height, width, CV_8UC4);
+			cv::Mat imgDepth(height, width, CV_16UC1);
 			
+			int32_t fileSizeColor, fileSizeDepth;
+			std::unique_ptr<char[]> bufferColor = readFile(nameColor, fileSizeColor);
+			std::unique_ptr<char[]> bufferDepth = readFile(nameDepth, fileSizeDepth);
+			std::unique_ptr<uint16_t[]> bufferUINT16(new uint16_t[fileSizeDepth / sizeof(float)]);
+
+			if (fileSizeColor != fileSizeDepth && fileSizeColor != width * height * 4)
+			{
+				// Skip this image, something is wrong
+				LOG4CPP_INFO( logger, "Skipped image " << entry->second << " due to filesize errors." );
+				continue;
+			}
+			
+			m_events.push_back(Measurement::Timestamp(m_initialTS + entry->first * nanoseconds / fps));
+			LOG4CPP_INFO( logger, "Loaded image " << entry->second );
+
+			float* tempPtr = reinterpret_cast<float*>(bufferDepth.get());
+			for (int index = 0; index < fileSizeDepth / sizeof(float); ++index)
+			{
+				bufferUINT16[index] = static_cast<uint16_t>(tempPtr[index] * 100.0 + 0.5);
+			}
+
+			std::memcpy(imgColor.data, bufferColor.get(), fileSizeColor);
+			std::memcpy(imgDepth.data, bufferUINT16.get(), fileSizeDepth * sizeof(uint16_t) / sizeof(float));
+
+			imagesColor.push_back(imgColor);
+			imagesDepth.push_back(imgDepth);
+		}			
 
 		// read file with timestamps and other data
 		
-		// genereated for this example
-		for (int i = 0; i < 100; i++) {
-			// Store it
-			m_events.push_back(Measurement::Timestamp(i*1000000000LL));
-		}
-			
+		// generated for this example
 		
 		LOG4CPP_INFO( logger, "Done loading " << m_events.size() << " images defined in file \"" << m_tsFile << "\"." );
 		
@@ -265,36 +335,88 @@ public:
 
 			// TODO send all data with the same timestamp
 
-			boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 3, CV_8U, 0));
+			Vision::Image::ImageFormatProperties fmt;
+
+			fmt.imageFormat = Vision::Image::BGRA;
+			fmt.channels = 4;
+			fmt.bitsPerPixel = 32;
+
+			// boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 3, CV_8U, 0));
+			boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesColor[m_currentIndex], fmt));
 			m_outPortColor.send( Measurement::ImageMeasurement( ts, colorImage ) );
 
+			fmt.imageFormat = Vision::Image::DEPTH;
+			fmt.channels = 1;
+			fmt.bitsPerPixel = 16;
 
-			boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 1, CV_16U, 0));
-			m_outPortColor.send(Measurement::ImageMeasurement(ts, depthImage));
+			// QUESTION. Is this supposed to be m_outPortDepth?
+			//boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 1, CV_16U, 0));
 
-			Math::Quaternion rotation(0, 0, 0, 1);
-			Math::Vector3d position(1, 2, 3);
-			Math::Pose pose(rotation, position);
-			m_outPortPose.send(Measurement::Pose(ts, pose));
+			boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesDepth[m_currentIndex], fmt));
+			m_outPortDepth.send(Measurement::ImageMeasurement(ts, depthImage));
+			
+			LOG4CPP_INFO( logger, "Send image " << m_currentIndex << "\"." );
 
-
-
+			m_currentIndex++;
 			m_events.pop_front();
 		}
 	}
 
-	Measurement::CameraIntrinsics getCameraModel(Measurement::Timestamp t)
+	Measurement::Pose getCameraPoseColor(Measurement::Timestamp t)
+	{
+		double pitch = std::stod(std::string(metadata["color_image"]["rot_pitch"]));
+		double yaw   = std::stod(std::string(metadata["color_image"]["rot_yaw"]));
+		double roll  = std::stod(std::string(metadata["color_image"]["rot_roll"]));
+
+		double xPos  = std::stod(std::string(metadata["color_image"]["pos_x"]));
+		double yPos  = std::stod(std::string(metadata["color_image"]["pos_y"]));
+		double zPos  = std::stod(std::string(metadata["color_image"]["pos_z"]));
+		
+		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
+
+        Math::Vector3d position(xPos, yPos, zPos);                                                                 
+        Math::Pose pose(rotation, position);
+		return Measurement::Pose(t, pose);
+	}
+
+	Measurement::Pose getCameraPoseDepth(Measurement::Timestamp t)
+	{
+		double pitch = std::stod(std::string(metadata["depth_image"]["rot_pitch"]));
+		double yaw   = std::stod(std::string(metadata["depth_image"]["rot_yaw"]));
+		double roll  = std::stod(std::string(metadata["depth_image"]["rot_roll"]));
+
+		double xPos  = std::stod(std::string(metadata["depth_image"]["pos_x"]));
+		double yPos  = std::stod(std::string(metadata["depth_image"]["pos_y"]));
+		double zPos  = std::stod(std::string(metadata["depth_image"]["pos_z"]));
+		
+		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
+
+        Math::Vector3d position(xPos, yPos, zPos);                                                                 
+        Math::Pose pose(rotation, position);
+		return Measurement::Pose(t, pose);
+	}
+	Measurement::CameraIntrinsics getCameraModelColor(Measurement::Timestamp t)
     {
+		std::size_t width = std::stoi(std::string(metadata["width"]));
+		std::size_t height = std::stoi(std::string(metadata["height"]));
+		int32_t iWidth = static_cast<int32_t>(width);
+		int32_t iHeight = static_cast<int32_t>(height);
+		const double PI = 3.1415926;
+		double field_of_view = std::stod(std::string(metadata["fov"]));
 
 		// TODO: provide intrinsic properties
+		// done
 		Math::Matrix< double, 3, 3 > intrinsicMatrix;
+		double focal_length_X = (width / 2) / std::tan(PI * (field_of_view / 2.0) / 180.0);
+		double focal_length_Y = (height / 2) / std::tan(PI * (field_of_view / 2.0) / 180.0);
+
 		// row , col
-		intrinsicMatrix(0, 0) = 400; //fx
+		intrinsicMatrix(0, 0) = focal_length_X; //fx
 		intrinsicMatrix(0, 1) = 0;
-		intrinsicMatrix(0, 2) = -320; //cx
+		intrinsicMatrix(0, 2) = -iWidth / 2; //cx
 		intrinsicMatrix(1, 0) = 0;
-		intrinsicMatrix(1, 1) = 400; //fy
-		intrinsicMatrix(1, 2) = -240; //cy
+		intrinsicMatrix(1, 1) = focal_length_Y; //fy
+		intrinsicMatrix(1, 2) = -iHeight / 2; //cy
 		intrinsicMatrix(2, 0) = 0;
 		intrinsicMatrix(2, 1) = 0;
 		intrinsicMatrix(2, 2) = -1;
@@ -306,12 +428,48 @@ public:
 		tangential(0) = 0;
 		tangential(1) = 0;
 
-		std::size_t width = 640;
-		std::size_t height = 480;
 		Math::CameraIntrinsics<double> intrinsics(intrinsicMatrix, radial, tangential, width, height);
         return Measurement::CameraIntrinsics(t, intrinsics);
     }
+
+	Measurement::CameraIntrinsics getCameraModelDepth(Measurement::Timestamp t)
+	{
+		return getCameraModelColor(t);
+	}
 protected:
+		
+	std::unique_ptr<char[]> readFile(std::string filename, int32_t& fileSize)
+	{
+		std::ifstream file(filename, std::ios::binary);
+		file.unsetf(std::ios::skipws);
+		file.seekg(0, std::ios::end);
+		fileSize = static_cast<int32_t>(file.tellg());
+		file.seekg(0, std::ios::beg);
+		std::unique_ptr<char[]> buffer(new char[fileSize]);
+		file.read(buffer.get(), fileSize);
+		file.close();
+		return buffer;
+	}
+
+	Math::Quaternion getQuaternionFromYPR(float yaw, float pitch, float roll)
+	{
+		const double PI = 3.14159265359;
+
+		double cy = std::cos(PI * yaw * 0.5 / 180.0);
+		double sy = std::sin(PI * yaw * 0.5 / 180.0);
+		double cp = std::cos(PI * pitch * 0.5 / 180.0);
+		double sp = std::sin(PI * pitch * 0.5 / 180.0);
+		double cr = std::cos(PI * roll * 0.5 / 180.0);
+		double sr = std::sin(PI * roll * 0.5 / 180.0);
+		
+		Math::Quaternion rotation(
+			cy * cp * cr + sy * sp * sr,
+			cy * cp * sr - sy * sp * cr,
+			sy * cp * sr + cy * sp * cr,
+			sy * cp * cr - cy * sp * sr);
+
+		return rotation;
+	}
 
 	/**
 	 * converts a recorded time to a real time.
@@ -337,11 +495,19 @@ protected:
 	/** output port */
 	Dataflow::PushSupplier< Measurement::ImageMeasurement > m_outPortColor;
 	Dataflow::PushSupplier< Measurement::ImageMeasurement > m_outPortDepth;
-	Dataflow::PushSupplier< Measurement::Pose > m_outPortPose;
-	Dataflow::PullSupplier< Measurement::CameraIntrinsics > m_outPortIntrinsics;
+	Dataflow::PullSupplier< Measurement::Pose > m_outPortPoseColor;
+	Dataflow::PullSupplier< Measurement::Pose > m_outPortPoseDepth;
+	Dataflow::PullSupplier< Measurement::CameraIntrinsics > m_outPortIntrinsicsColor;
+	Dataflow::PullSupplier< Measurement::CameraIntrinsics > m_outPortIntrinsicsDepth;
 
 	/** queue for the images being loaded, @todo add mutex for accessing m_events */
 	// TODO: store all data
+	uint64_t m_initialTS;
+	std::vector<cv::Mat> imagesColor;
+	std::vector<cv::Mat> imagesDepth;
+	std::map<int, std::string> allImagesBasenames;
+	int32_t m_currentIndex;
+	json metadata;
 	std::deque< Measurement::Timestamp > m_events;
 };
 

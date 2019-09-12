@@ -49,6 +49,8 @@
 #include <map>
 #include <regex>
 #include <stdint.h>
+#include <mutex>
+#include <condition_variable>
 
 #ifdef _WIN32
 #include <filesystem>
@@ -204,9 +206,10 @@ public:
 		, m_outPortPoseColor( "OutputPoseColor", *this, boost::bind(&UECameraPlayerComponentImage::getCameraPoseColor, this, _1) )
 		, m_outPortPoseDepth( "OutputPoseDepth", *this, boost::bind(&UECameraPlayerComponentImage::getCameraPoseDepth, this, _1) )
 		, m_initialTS( 1000LL )
-		, m_currentIndex( 0 )
 		, m_outPortIntrinsicsColor( "OutputIntrinsicsColor", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModelColor, this, _1) )
 		, m_outPortIntrinsicsDepth( "OutputIntrinsicsDepth", *this, boost::bind(&UECameraPlayerComponentImage::getCameraModelDepth, this, _1) )
+        , readingFilesDone(false)
+        , m_maxSizeQueue(32)
 	{
 		LOG4CPP_INFO( logger, "Created UECameraPlayerComponentImage using file \"" << key.get() << "\"." );
 
@@ -219,7 +222,7 @@ public:
 
 		std::string basePath = metadataFile.substr(0, metadataFile.length() - std::string("Metadata.json").length());
 		// load all image paths
-		std::regex rex{R"###(image_number_([0-9]*)\.raw32f)###"};
+		std::regex rex{R"###(image_number_([0-9]*)\.depth16)###"};
 		std::smatch matches;
 
 		std::vector<std::string> allFiles;
@@ -245,9 +248,6 @@ public:
 	
     void loadImages()
     {
-        //boost::filesystem::path tsFile( m_tsFile );
-        //if( !boost::filesystem::exists( tsFile ) )
-        //	UBITRACK_THROW( "file with timestamps does not exist, please check the path: \"" + m_tsFile + "\"");
         std::string sWidth = metadata["width"];
         std::string sHeight = metadata["height"];
         std::string sFPS = metadata["fps"];
@@ -259,7 +259,7 @@ public:
 		LOG4CPP_INFO( logger, "Total images " << allImagesBasenames.size() );
 
 		for (auto entry = allImagesBasenames.begin(); entry != allImagesBasenames.end(); ++entry)
-		{
+		{            
 			std::string nameColor = entry->second + ".bgr8";
 			std::string nameDepth = entry->second + ".depth16";
 
@@ -267,42 +267,62 @@ public:
 			cv::Mat imgDepth(height, width, CV_16UC1);
 			
 			int32_t fileSizeColor, fileSizeDepth;
-			std::unique_ptr<char[]> bufferColor = readFile(nameColor, fileSizeColor);
-			std::unique_ptr<char[]> bufferDepth = readFile(nameDepth, fileSizeDepth);
 			
-			if (fileSizeColor != fileSizeDepth && fileSizeColor != width * height * 4)
+            if (!
+                (readFile(nameColor, fileSizeColor, reinterpret_cast<char*>(imgColor.data)) &&
+                 readFile(nameDepth, fileSizeDepth, reinterpret_cast<char*>(imgDepth.data)))
+                )
+            {
+                LOG4CPP_INFO(logger, "Skipped image " << entry->second << " due to file reading errors.");
+                continue;
+            }
+
+			if (fileSizeColor != 2 * fileSizeDepth && fileSizeColor != width * height * 4)
 			{
 				// Skip this image, something is wrong
-				LOG4CPP_INFO( logger, "Skipped image " << entry->second << " due to filesize errors." );
+                LOG4CPP_INFO(logger, "Skipped image " << entry->second << " due to filesize errors.");
 				continue;
 			}
+						
+            {
+                std::unique_lock <std::mutex> guardColor(queueAccessColor);
+                if (imagesColor.size() == m_maxSizeQueue)
+                {
+                    // Wait for mutex conditional signal to wake up
+                    queueAccessColorCV.wait(guardColor);
+                }
+                imagesColor.push(imgColor);
+            }
 			
-			m_events.push_back(Measurement::Timestamp(m_initialTS + entry->first * nanoseconds / fps));
-			LOG4CPP_INFO( logger, "Loaded image " << entry->second );
-
-			std::memcpy(imgColor.data, bufferColor.get(), fileSizeColor);
-			std::memcpy(imgDepth.data, bufferDepth.get(), fileSizeDepth);
-
-			imagesColor.push_back(imgColor);
-			imagesDepth.push_back(imgDepth);
+            {
+                std::unique_lock <std::mutex> guardDepth(queueAccessDepth);
+                if (imagesDepth.size() == m_maxSizeQueue)
+                {
+                    // Wait for mutex conditional signal to wake up
+                    queueAccessDepthCV.wait(guardDepth);
+                }
+                imagesDepth.push(imgDepth);
+            }
+            m_events.push_back(Measurement::Timestamp(m_initialTS + entry->first * nanoseconds / fps));
+            eventsAccessCV.notify_one();
 		}			
 
 		// read file with timestamps and other data
 		
 		// generated for this example
-		
-		LOG4CPP_INFO( logger, "Done loading " << m_events.size() << " images defined in file \"" << m_tsFile << "\"." );
-		
+        
+        readingFilesDone = true;
+        LOG4CPP_INFO( logger, "Done loading " << m_events.size() << " images defined in file \"" << m_tsFile << "\"." );
 	}
 
 	Measurement::Timestamp getFirstTime() const
 	{
-		if (!m_events.empty()) {
+		if (!m_events.empty()) 
+        {
 			// TODO: provide the first/earliest timestamp 
 			Measurement::Timestamp ts = *m_events.begin();
 			return ts + 1000000LL * m_offset;
-		}
-			
+		}			
 		else
 			return 0;
 	}
@@ -310,7 +330,13 @@ public:
 	/** return time of the next measurement to be played or 0 if no events */
 	Measurement::Timestamp getNextTime( Measurement::Timestamp recordStart, Measurement::Timestamp playbackStart )
 	{
-		if (!m_events.empty()) {
+        if (!(readingFilesDone && m_events.empty()))
+        {
+            if (m_events.empty())
+            {
+                std::unique_lock<std::mutex> guard(eventsAccess);
+                eventsAccessCV.wait(guard);
+            }
 			// TODO: provide the next timestamp 
 			Measurement::Timestamp ts = *m_events.begin();
 			return recordTimeToReal(ts, recordStart, playbackStart);
@@ -336,8 +362,11 @@ public:
 			fmt.bitsPerPixel = 32;
 
 			// boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 3, CV_8U, 0));
-			boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesColor[m_currentIndex], fmt));
-			m_outPortColor.send( Measurement::ImageMeasurement( ts, colorImage ) );
+            {
+                std::unique_lock <std::mutex> guardColor(queueAccessColor);
+                boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesColor.front(), fmt));
+                m_outPortColor.send(Measurement::ImageMeasurement(ts, colorImage));
+            }
 
 			fmt.imageFormat = Vision::Image::DEPTH;
 			fmt.channels = 1;
@@ -346,12 +375,18 @@ public:
 			// QUESTION. Is this supposed to be m_outPortDepth?
 			//boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 1, CV_16U, 0));
 
-			boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesDepth[m_currentIndex], fmt));
-			m_outPortDepth.send(Measurement::ImageMeasurement(ts, depthImage));
-			
-			LOG4CPP_INFO( logger, "Send image " << m_currentIndex << "\"." );
+            {
+                std::unique_lock <std::mutex> guardColor(queueAccessDepth);
+                boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesDepth.front(), fmt));
+                m_outPortDepth.send(Measurement::ImageMeasurement(ts, depthImage));
+            }
 
-			m_currentIndex++;
+            imagesColor.pop();
+            queueAccessColorCV.notify_one();
+            
+            imagesDepth.pop();
+            queueAccessDepthCV.notify_one();
+
 			m_events.pop_front();
 		}
 	}
@@ -465,6 +500,23 @@ protected:
 		return buffer;
 	}
 
+    bool readFile(std::string filename, int32_t& fileSize, char* buffer)
+    {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file.good())
+        {
+            return false;
+        }
+        
+        file.unsetf(std::ios::skipws);
+        file.seekg(0, std::ios::end);
+        fileSize = static_cast<int32_t>(file.tellg());
+        file.seekg(0, std::ios::beg);
+        file.read(buffer, fileSize);
+        file.close();
+        return true;
+    }
+
 	Math::Quaternion getQuaternionFromYPR(double yaw, double pitch, double roll)
 	{
 		const double PI = 3.14159265359;
@@ -517,10 +569,21 @@ protected:
 	/** queue for the images being loaded, @todo add mutex for accessing m_events */
 	// TODO: store all data
 	uint64_t m_initialTS;
-	std::vector<cv::Mat> imagesColor;
-	std::vector<cv::Mat> imagesDepth;
+    
+    const int32_t m_maxSizeQueue;
+    std::atomic_bool readingFilesDone;
+    std::mutex queueAccessColor;
+    std::mutex queueAccessDepth;
+    std::mutex eventsAccess;
+
+    std::condition_variable queueAccessColorCV;
+    std::condition_variable queueAccessDepthCV;
+    std::condition_variable eventsAccessCV;
+
+    std::queue<cv::Mat> imagesColor;
+	std::queue<cv::Mat> imagesDepth;
 	std::map<int, std::string> allImagesBasenames;
-	int32_t m_currentIndex;
+
 	json metadata;
 	std::deque< Measurement::Timestamp > m_events;
 };

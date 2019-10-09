@@ -220,7 +220,7 @@ public:
 	    std::ifstream infile(metadataFile);
 		metadata = json::parse(infile);
 
-		std::string basePath = metadataFile.substr(0, metadataFile.length() - std::string("Metadata.json").length());
+		basePath = metadataFile.substr(0, metadataFile.length() - std::string("Metadata.json").length());
 		// load all image paths
 		std::regex rex{R"###(image_number_([0-9]*)\.depth16)###"};
 		std::smatch matches;
@@ -265,6 +265,7 @@ public:
 
 			cv::Mat imgColor(height, width, CV_8UC4);
 			cv::Mat imgDepth(height, width, CV_16UC1);
+			cv::Mat imgDepth8bit(height, width, CV_8UC1);
 			
 			int32_t fileSizeColor, fileSizeDepth;
 			
@@ -276,6 +277,26 @@ public:
                 LOG4CPP_INFO(logger, "Skipped image " << entry->second << " due to file reading errors.");
                 continue;
             }
+
+			uint16_t maxValue = 0;
+			uint16_t minValue = 65535;
+
+			for (int index = 0; index < width * height; ++index)
+			{
+				uint16_t value = imgDepth.at<uint16_t>(index / width, index % width);				
+				maxValue = std::max(maxValue, value);
+				minValue = std::min(minValue, value);
+			}
+
+			for (int index = 0; index < width * height; ++index)
+			{
+				uint16_t value = imgDepth.at<uint16_t>(index / width, index % width);
+				double result = static_cast<double>(value - minValue) * 255 / (maxValue - minValue);
+				uint8_t res8bit = static_cast<uint8_t>(result);
+				imgDepth8bit.at<uint8_t>(index / width, index % width) = res8bit;
+			}
+
+			cv::imwrite(entry->second + ".pgm", imgDepth8bit);
 
 			if (fileSizeColor != 2 * fileSizeDepth && fileSizeColor != width * height * 4)
 			{
@@ -303,6 +324,9 @@ public:
                 }
                 imagesDepth.push(imgDepth);
             }
+            
+			//LOG4CPP_INFO(logger, "Loaded next images, basename " << entry->second);
+			//LOG4CPP_INFO(logger, "Timestamp: " << m_initialTS + entry->first * nanoseconds / fps);
             m_events.push_back(Measurement::Timestamp(m_initialTS + entry->first * nanoseconds / fps));
             eventsAccessCV.notify_one();
 		}			
@@ -352,16 +376,14 @@ public:
 		if( !m_events.empty() )
 		{
 			Measurement::Timestamp ts = recordTimeToReal(*m_events.begin(), recordStart, playbackStart);
-
-			// TODO send all data with the same timestamp
-
+			unsigned long long int timestamp = *m_events.begin();
+			LOG4CPP_INFO(logger, "Getting timestamp: " << static_cast<double>(timestamp / 1000000) << " from camera " << basePath);
 			Vision::Image::ImageFormatProperties fmt;
 
 			fmt.imageFormat = Vision::Image::BGRA;
 			fmt.channels = 4;
 			fmt.bitsPerPixel = 32;
 
-			// boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 3, CV_8U, 0));
             {
                 std::unique_lock <std::mutex> guardColor(queueAccessColor);
                 boost::shared_ptr<Vision::Image> colorImage = boost::shared_ptr<Vision::Image>(new Vision::Image(imagesColor.front(), fmt));
@@ -371,9 +393,6 @@ public:
 			fmt.imageFormat = Vision::Image::DEPTH;
 			fmt.channels = 1;
 			fmt.bitsPerPixel = 16;
-
-			// QUESTION. Is this supposed to be m_outPortDepth?
-			//boost::shared_ptr<Vision::Image> depthImage = boost::shared_ptr<Vision::Image>(new Vision::Image(640, 480, 1, CV_16U, 0));
 
             {
                 std::unique_lock <std::mutex> guardColor(queueAccessDepth);
@@ -393,53 +412,54 @@ public:
 
     Measurement::Pose getCameraPoseColor(Measurement::Timestamp t)
     {
-        std::string sPitch = metadata["color_image"]["rot_pitch"];
-        std::string sRoll = metadata["color_image"]["rot_roll"];
-        std::string sYaw = metadata["color_image"]["rot_yaw"];
+	    std::string sQx = metadata["color_image"]["rot_X"];
+	    std::string sQy = metadata["color_image"]["rot_Y"];
+    	std::string sQz = metadata["color_image"]["rot_Z"];
+        std::string sQw = metadata["color_image"]["rot_W"];
 
-        double pitch = std::stod(sPitch);
-        double yaw = std::stod(sYaw);
-        double roll = std::stod(sRoll);
+	    double qx = std::stod(sQx);
+	    double qy = std::stod(sQy);
+        double qz = std::stod(sQz);
+        double qw = std::stod(sQw);
 
         std::string sXpos = metadata["color_image"]["pos_x"];
         std::string sYpos = metadata["color_image"]["pos_y"];
         std::string sZpos = metadata["color_image"]["pos_z"];
 
-		double xPos  = std::stod(sXpos);
+        double xPos  = std::stod(sXpos);
 		double yPos  = std::stod(sYpos);
 		double zPos  = std::stod(sZpos);
 		
-		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
+		Math::Pose pose = ubitrackPoseFromUEPose(xPos, yPos, zPos, qx, qy, qz, qw);
 
-        Math::Vector3d position(xPos, yPos, zPos);                                                                 
-        Math::Pose pose(rotation, position);
 		return Measurement::Pose(t, pose);
 	}
 
 	Measurement::Pose getCameraPoseDepth(Measurement::Timestamp t)
 	{
-        std::string sPitch = metadata["depth_image"]["rot_pitch"];
-        std::string sRoll = metadata["depth_image"]["rot_roll"];
-        std::string sYaw = metadata["depth_image"]["rot_yaw"];
+        std::string sQx = metadata["depth_image"]["rot_X"];
+        std::string sQy = metadata["depth_image"]["rot_Y"];
+        std::string sQz = metadata["depth_image"]["rot_Z"];
+        std::string sQw = metadata["depth_image"]["rot_W"];
 
-        double pitch = std::stod(sPitch);
-        double yaw = std::stod(sYaw);
-        double roll = std::stod(sRoll);
+        double qx = std::stod(sQx);
+        double qy = std::stod(sQy);
+	    double qz = std::stod(sQz);
+	    double qw = std::stod(sQw);
 
-        std::string sXpos = metadata["depth_image"]["pos_x"];
-        std::string sYpos = metadata["depth_image"]["pos_y"];
-        std::string sZpos = metadata["depth_image"]["pos_z"];
+	    std::string sXpos = metadata["depth_image"]["pos_x"];
+	    std::string sYpos = metadata["depth_image"]["pos_y"];
+	    std::string sZpos = metadata["depth_image"]["pos_z"];
 
-        double xPos = std::stod(sXpos);
-        double yPos = std::stod(sYpos);
-        double zPos = std::stod(sZpos);
+		double xPos  = std::stod(sXpos);
+		double yPos  = std::stod(sYpos);
+		double zPos  = std::stod(sZpos);
+		
+		Math::Pose pose = ubitrackPoseFromUEPose(xPos, yPos, zPos, qx, qy, qz, qw);
 
-		Math::Quaternion rotation = getQuaternionFromYPR(yaw, pitch, roll);
-
-        Math::Vector3d position(xPos, yPos, zPos);                                                                 
-        Math::Pose pose(rotation, position);
 		return Measurement::Pose(t, pose);
 	}
+
 	Measurement::CameraIntrinsics getCameraModelColor(Measurement::Timestamp t)
     {
         std::string sWidth = metadata["width"];
@@ -485,6 +505,7 @@ public:
 	{
 		return getCameraModelColor(t);
 	}
+	
 protected:
 		
 	std::unique_ptr<char[]> readFile(std::string filename, int32_t& fileSize)
@@ -517,24 +538,46 @@ protected:
         return true;
     }
 
-	Math::Quaternion getQuaternionFromYPR(double yaw, double pitch, double roll)
+	Math::Pose ubitrackPoseFromUEPose(double xPos, double yPos, double zPos, double qx, double qy, double qz, double qw)
 	{
-		const double PI = 3.14159265359;
-
-		double cy = std::cos(PI * yaw * 0.5 / 180.0);
-		double sy = std::sin(PI * yaw * 0.5 / 180.0);
-		double cp = std::cos(PI * pitch * 0.5 / 180.0);
-		double sp = std::sin(PI * pitch * 0.5 / 180.0);
-		double cr = std::cos(PI * roll * 0.5 / 180.0);
-		double sr = std::sin(PI * roll * 0.5 / 180.0);
+		xPos /= 100.0;
+		yPos /= 100.0;
+		zPos /= 100.0;
 		
-		Math::Quaternion rotation(
-			cy * cp * cr + sy * sp * sr,
-			cy * cp * sr - sy * sp * cr,
-			sy * cp * sr + cy * sp * cr,
-			sy * cp * cr - cy * sp * sr);
+		Math::Quaternion rotation(qx,qy,qz,qw);
+		Math::Vector3d position(xPos, yPos, zPos);                                                                 
+	        Math::Pose ueCameraPose(rotation, position);
 
-		return rotation;
+
+		// rotate 90° around Z Axis
+		Math::Pose p1 = Math::Pose(Math::Quaternion(0., 0., -0.7071067811865476, 0.7071067811865476), Math::Vector3d(.0, .0, .0));
+
+		// rotate 90° around x Axis, evtl. -90° Math::Pose(-0.7071067811865476, 0, 0, 0.7071067811865476);
+		Math::Pose p2 = Math::Pose(Math::Quaternion(-0.7071067811865476, 0., 0., 0.7071067811865476), Math::Vector3d(.0, .0, .0));
+	
+		Math::Pose orientUECameraToUbitrackCameraOrientation = p2*p1;  // rotate camera, still lefthanded
+
+		Math::Pose ueCameraInUbitrack = orientUECameraToUbitrackCameraOrientation*ueCameraPose;  
+	
+		// now ueCameraInUbitrack is oriented like ubitrack expects the camera but still left 	handed
+		Math::Quaternion rot = ueCameraInUbitrack.rotation();  
+
+		// convert left to right handed by mirroring along the x-y Plane
+		// just flip z
+		Math::Vector3d pos = ueCameraInUbitrack.translation();
+		Math::Vector3d posRightHanded = Math::Vector3d(pos(0),pos(1), -pos(2));  // flip z and then invert
+
+		// why invert: When we mirror on x-y plane the origin is now somewhere else hence we have to invert otherwise
+		// flip z: z = -z
+		// invert: x = -x, y = -y, z=-z, w=w
+		// --> just invert x and y
+		Math::Quaternion tmp2 = ~orientUECameraToUbitrackCameraOrientation.rotation();
+		rot = rot * tmp2;
+		Math::Quaternion rotRightHanded = Math::Quaternion(-rot.x(), -rot.y(), rot.z(), rot.w());
+
+		Math::Pose finalPose = Math::Pose(rotRightHanded,posRightHanded);
+        
+		return finalPose;
 	}
 
 	/**
@@ -583,6 +626,8 @@ protected:
     std::queue<cv::Mat> imagesColor;
 	std::queue<cv::Mat> imagesDepth;
 	std::map<int, std::string> allImagesBasenames;
+
+	std::string basePath;
 
 	json metadata;
 	std::deque< Measurement::Timestamp > m_events;

@@ -277,26 +277,22 @@ public:
                 LOG4CPP_INFO(logger, "Skipped image " << entry->second << " due to file reading errors.");
                 continue;
             }
-
-			uint16_t maxValue = 0;
-			uint16_t minValue = 65535;
-
-			for (int index = 0; index < width * height; ++index)
-			{
-				uint16_t value = imgDepth.at<uint16_t>(index / width, index % width);				
-				maxValue = std::max(maxValue, value);
-				minValue = std::min(minValue, value);
-			}
+/*
+			uint16_t maxValue = 4096;
+			uint16_t minValue = 0;
 
 			for (int index = 0; index < width * height; ++index)
 			{
 				uint16_t value = imgDepth.at<uint16_t>(index / width, index % width);
 				double result = static_cast<double>(value - minValue) * 255 / (maxValue - minValue);
+				if (result > 255.0)
+				    result = 255.0;
+
 				uint8_t res8bit = static_cast<uint8_t>(result);
 				imgDepth8bit.at<uint8_t>(index / width, index % width) = res8bit;
 			}
 
-			cv::imwrite(entry->second + ".pgm", imgDepth8bit);
+			cv::imwrite(entry->second + ".pgm", imgDepth8bit);*/
 
 			if (fileSizeColor != 2 * fileSizeDepth && fileSizeColor != width * height * 4)
 			{
@@ -432,6 +428,8 @@ public:
 		
 		Math::Pose pose = ubitrackPoseFromUEPose(xPos, yPos, zPos, qx, qy, qz, qw);
 
+		//LOG4CPP_INFO(logger, "Getting color pose: " << pose);
+			
 		return Measurement::Pose(t, pose);
 	}
 
@@ -456,6 +454,8 @@ public:
 		double zPos  = std::stod(sZpos);
 		
 		Math::Pose pose = ubitrackPoseFromUEPose(xPos, yPos, zPos, qx, qy, qz, qw);
+
+		//LOG4CPP_INFO(logger, "Getting depth pose: " << pose);
 
 		return Measurement::Pose(t, pose);
 	}
@@ -546,7 +546,7 @@ protected:
 		
 		Math::Quaternion rotation(qx,qy,qz,qw);
 		Math::Vector3d position(xPos, yPos, zPos);                                                                 
-	        Math::Pose ueCameraPose(rotation, position);
+	    Math::Pose ueCameraPose(rotation, position);
 
 
 		// rotate 90° around Z Axis
